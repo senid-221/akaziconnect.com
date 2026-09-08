@@ -1,35 +1,7 @@
-const client = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_PUBLISHABLE_KEY);
-
-async function startDashboard(){
- const result = await client.auth.getUser();
- const user = result.data.user;
- if(!user){ window.location.href='index.html'; return; }
- const profile = await client.from('profiles').select('full_name,role').eq('id',user.id).single();
- document.getElementById('welcome').textContent = `Murakaza neza, ${profile.data?.full_name || 'User'}`;
- document.getElementById('roleText').textContent = `Account: ${profile.data?.role || 'job_seeker'}`;
- const stats=document.getElementById('stats'); const content=document.getElementById('content');
- if(profile.data?.role==='employer') await employerDashboard(user.id,stats,content);
- else if(profile.data?.role==='admin') await adminDashboard(stats,content);
- else await seekerDashboard(user.id,stats,content);
-}
-async function seekerDashboard(id,stats,content){
- const a=await client.from('applications').select('id,status,jobs(title,companies(name))').eq('applicant_id',id).order('created_at',{ascending:false});
- const s=await client.from('saved_jobs').select('id').eq('user_id',id);
- stats.innerHTML=`<div class="dash-grid"><div class="dash-card"><h3>Candidatures</h3><div class="metric">${a.data?.length||0}</div></div><div class="dash-card"><h3>Saved jobs</h3><div class="metric">${s.data?.length||0}</div></div></div>`;
- content.innerHTML='<div class="dash-card"><h2>Candidatures zawe</h2>'+((a.data||[]).map(x=>`<p>${x.jobs?.title||'Job'} — <strong>${x.status}</strong></p>`).join('')||'<p>Nta candidature uratuma.</p>')+'</div>';
-}
-async function employerDashboard(id,stats,content){
- const c=await client.from('companies').select('id,name').eq('owner_id',id).maybeSingle();
- if(!c.data){stats.innerHTML='<div class="dash-card"><h2>Kora Company Profile</h2><p>Garuka kuri homepage ushyireho job kugira ngo utangire.</p></div>';return;}
- const j=await client.from('jobs').select('id,title').eq('company_id',c.data.id).order('created_at',{ascending:false});
- const ids=(j.data||[]).map(x=>x.id); const apps=ids.length?await client.from('applications').select('id').in('job_id',ids):{data:[]};
- stats.innerHTML=`<div class="dash-grid"><div class="dash-card"><h3>${c.data.name}</h3><div class="metric">${j.data?.length||0}</div><p>Jobs</p></div><div class="dash-card"><h3>Candidates</h3><div class="metric">${apps.data?.length||0}</div></div></div>`;
- content.innerHTML='<div class="dash-card"><h2>Jobs zawe</h2>'+((j.data||[]).map(x=>`<p>${x.title}</p>`).join('')||'<p>Nta jobs urashyiraho.</p>')+'</div>';
-}
-async function adminDashboard(stats,content){
- const [j,a,c]=await Promise.all([client.from('jobs').select('id'),client.from('applications').select('id'),client.from('companies').select('id')]);
- stats.innerHTML=`<div class="dash-grid"><div class="dash-card"><h3>Jobs</h3><div class="metric">${j.data?.length||0}</div></div><div class="dash-card"><h3>Applications</h3><div class="metric">${a.data?.length||0}</div></div><div class="dash-card"><h3>Companies</h3><div class="metric">${c.data?.length||0}</div></div></div>`;
- content.innerHTML='<div class="dash-card"><h2>Admin Dashboard</h2><p>Ubu ushobora gukurikirana jobs, companies na applications.</p></div>';
-}
-document.getElementById('logout').onclick=async()=>{await client.auth.signOut();window.location.href='index.html';};
-startDashboard();
+const client=window.supabase.createClient(window.SUPABASE_URL,window.SUPABASE_PUBLISHABLE_KEY);
+const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+async function startDashboard(){const {data:{user}}=await client.auth.getUser();if(!user){location.href='index.html';return}const p=await client.from('profiles').select('full_name,role,phone,bio,location,skills,cv_url').eq('id',user.id).single();if(p.error){document.getElementById('content').innerHTML=`<div class="dash-card"><h2>Ntibyagenze neza</h2><p>${esc(p.error.message)}</p></div>`;return}document.getElementById('welcome').textContent=`Murakaza neza, ${p.data?.full_name||'User'}`;document.getElementById('roleText').textContent=`Account: ${p.data?.role||'job_seeker'}`;const s=document.getElementById('stats'),c=document.getElementById('content');if(p.data?.role==='employer')await employerDashboard(user.id,s,c);else if(p.data?.role==='admin')await adminDashboard(s,c);else await seekerDashboard(user.id,s,c);}
+async function seekerDashboard(id,stats,content){const [a,s]=await Promise.all([client.from('applications').select('id,status,created_at,jobs(title,companies(name))').eq('applicant_id',id).order('created_at',{ascending:false}),client.from('saved_jobs').select('job_id,created_at,jobs(title,location,companies(name))').eq('user_id',id).order('created_at',{ascending:false})]);stats.innerHTML=`<div class="dash-grid"><div class="dash-card"><h3>Candidatures</h3><div class="metric">${a.data?.length||0}</div></div><div class="dash-card"><h3>Saved jobs</h3><div class="metric">${s.data?.length||0}</div></div><div class="dash-card"><h3>Profile</h3><div class="metric">✓</div></div></div>`;content.innerHTML=`<div class="dash-card"><h2>Profile yawe</h2><p><strong>Amazina:</strong> ${esc((await client.from('profiles').select('full_name').eq('id',id).single()).data?.full_name)}</p><p><strong>Location:</strong> Profile yawe ishobora kuzuzwa muri phase ikurikira.</p></div><div class="dash-card"><h2>Candidatures zawe</h2>${(a.data||[]).map(x=>`<p><strong>${esc(x.jobs?.title||'Job')}</strong> · ${esc(x.jobs?.companies?.name||'Company')} — <strong>${esc(x.status)}</strong></p>`).join('')||'<p>Nta candidature uratuma.</p>'}</div><div class="dash-card"><h2>Jobs wabikiye</h2>${(s.data||[]).map(x=>`<p><strong>${esc(x.jobs?.title||'Job')}</strong> · ${esc(x.jobs?.location||'')} · ${esc(x.jobs?.companies?.name||'Company')}</p>`).join('')||'<p>Nta job wabika.</p>'}</div>`}
+async function employerDashboard(id,stats,content){const c=await client.from('companies').select('id,name,location,verified').eq('owner_id',id).maybeSingle();if(!c.data){stats.innerHTML='<div class="dash-card"><h2>Kora Company Profile</h2><p>Garuka kuri homepage ushyireho job kugira ngo utangire.</p></div>';return}const j=await client.from('jobs').select('id,title,status,location,created_at').eq('company_id',c.data.id).order('created_at',{ascending:false});const ids=(j.data||[]).map(x=>x.id);const apps=ids.length?await client.from('applications').select('id,status,job_id,applicant_id,profiles(full_name)').in('job_id',ids).order('created_at',{ascending:false}):{data:[]};stats.innerHTML=`<div class="dash-grid"><div class="dash-card"><h3>${esc(c.data.name)}</h3><div class="metric">${j.data?.length||0}</div><p>Jobs</p></div><div class="dash-card"><h3>Candidates</h3><div class="metric">${apps.data?.length||0}</div></div><div class="dash-card"><h3>Verified</h3><div class="metric">${c.data.verified?'✓':'—'}</div></div></div>`;content.innerHTML=`<div class="dash-card"><h2>Jobs zawe</h2>${(j.data||[]).map(x=>`<p><strong>${esc(x.title)}</strong> · ${esc(x.location)} · ${esc(x.status)}</p>`).join('')||'<p>Nta jobs urashyiraho.</p>'}</div><div class="dash-card"><h2>Candidates</h2>${(apps.data||[]).map(x=>`<p><strong>${esc(x.profiles?.full_name||'Candidate')}</strong> · Job ID: ${esc(x.job_id)} · <strong>${esc(x.status)}</strong></p>`).join('')||'<p>Nta candidature iraza.</p>'}</div>`}
+async function adminDashboard(stats,content){const [j,a,c]=await Promise.all([client.from('jobs').select('id'),client.from('applications').select('id'),client.from('companies').select('id')]);stats.innerHTML=`<div class="dash-grid"><div class="dash-card"><h3>Jobs</h3><div class="metric">${j.data?.length||0}</div></div><div class="dash-card"><h3>Applications</h3><div class="metric">${a.data?.length||0}</div></div><div class="dash-card"><h3>Companies</h3><div class="metric">${c.data?.length||0}</div></div></div>`;content.innerHTML='<div class="dash-card"><h2>Admin Dashboard</h2><p>Metrics zose ziri muri Supabase.</p></div>'}
+document.getElementById('logout').onclick=async()=>{await client.auth.signOut();location.href='index.html'};startDashboard();
